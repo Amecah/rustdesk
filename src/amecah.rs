@@ -14,6 +14,7 @@
 //! - `AMECAH_APP_NAME`: app name. By default it is only changed on Windows, since on
 //!   macOS the name must match the `.app` bundle and on Linux the package names.
 
+use hbb_common::log;
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 
