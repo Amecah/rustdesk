@@ -125,6 +125,17 @@ jobs:
           export MACOSX_DEPLOYMENT_TARGET=${MIN_MACOS_VERSION}
           ./build.py --flutter --hwcodec --unix-file-copy-paste --screencapturekit
 
+      # build.py adds Contents/MacOS/service after Flutter signs the app, which breaks the
+      # signature ("is damaged" on Apple silicon). Upstream re-signs with its Developer ID;
+      # without one, re-sign ad hoc. No hardened runtime: with ad hoc signatures it makes
+      # library validation reject the Flutter frameworks (no Team ID).
+      - name: Re-sign app ad hoc
+        run: |
+          app=./flutter/build/macos/Build/Products/Release/RustDesk.app
+          codesign --force --deep --sign - --entitlements ./flutter/macos/Runner/Release.entitlements "$app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          "$app/Contents/MacOS/RustDesk" --version
+
       - name: Create DMG
         run: |
           version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
