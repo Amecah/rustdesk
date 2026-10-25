@@ -162,8 +162,8 @@ jobs:
             export VCPKG_ROOT=/opt/artifacts/vcpkg
             cargo build --locked --lib --features hwcodec,flutter,unix-file-copy-paste --release
             # The server key must be compiled in, or the client cannot authenticate the server.
-            if [ -z "$AMECAH_RS_PUB_KEY" ] || ! grep -q "$AMECAH_RS_PUB_KEY" target/release/librustdesk.so; then
-              echo "AMECAH_RS_PUB_KEY is not compiled into librustdesk.so"
+            if [ -z "$AMECAH_RS_PUB_KEY" ] || ! grep -q "$AMECAH_RS_PUB_KEY" target/release/liblibrustdesk.so; then
+              echo "AMECAH_RS_PUB_KEY is not compiled into liblibrustdesk.so"
               exit 1
             fi
             rm -rf target/release/deps target/release/build
