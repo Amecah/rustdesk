@@ -37,6 +37,7 @@ Concesionario (AmecahSoporte.exe)          Técnico (Amecah.exe)
 |---|---|---|---|
 | **AmecahSoporte** | `AmecahSoporte-<ver>-x86_64.exe` | Concesionario / usuario final | Solo conexiones entrantes, sin instalación, sin ajustes, sin cuenta ni libreta de direcciones, contraseña temporal |
 | **Amecah** | `Amecah-<ver>-x86_64.exe` | Técnicos de soporte | Cliente completo (entrante y saliente, se puede instalar) |
+| **Amecah (macOS)** | `Amecah-<ver>-macos-aarch64.dmg` | Técnicos con Mac Apple silicon | Cliente completo. La app conserva el nombre `RustDesk.app` (ver `AMECAH_APP_NAME`) y sale sin firmar: la primera vez, `xattr -cr /Applications/RustDesk.app` |
 
 Ambos sabores tienen fijados el servidor y su clave pública (el usuario no puede cambiarlos),
 desactivan la búsqueda de actualizaciones en rustdesk.com, el registro de dispositivo
@@ -59,6 +60,7 @@ archivos nuevos. Al sincronizar con upstream, esta tabla es lo único que hay qu
 | `amecah/branding/` | nuevo | Icono y logos de AMECAH | Marca |
 | `amecah/apply-branding.sh` | nuevo | Copia los iconos/logos sobre los de RustDesk **en el árbol de compilación** | No commitear binarios sobre archivos de upstream evita conflictos al sincronizar |
 | `.github/workflows/amecah-windows.yml` | nuevo | Compila los dos sabores para Windows x64 y publica el release | Los workflows de upstream compilan todas las plataformas y dependen de secretos de RustDesk |
+| `.github/workflows/amecah-macos.yml` | nuevo | Compila el cliente de técnicos para macOS arm64 (DMG) | Ídem |
 | `README.md`, `NOTICE.md` | nuevo / reemplazado | Este documento y avisos de licencia | Cumplimiento AGPL §5(a) |
 | `README-rustdesk.md` | renombrado | README original de upstream, sin cambios | Conservar la documentación y los avisos originales |
 
@@ -78,8 +80,8 @@ archivos nuevos. Al sincronizar con upstream, esta tabla es lo único que hay qu
 1. En *Settings → Secrets and variables → Actions → Variables* define
    `AMECAH_RS_PUB_KEY` (la imprime `terraform output` / `scripts/init-keys.sh` del repo de
    infraestructura) y, si cambia, `AMECAH_RENDEZVOUS_SERVER`.
-2. Ejecuta el workflow **AMECAH Windows build** (manual), o crea un tag `amecah-vX.Y.Z`
-   para que además publique un Release con los dos `.exe`:
+2. Ejecuta los workflows **AMECAH Windows build** y **AMECAH macOS build** (manuales), o
+   crea un tag `amecah-vX.Y.Z` para que además publiquen un Release con los `.exe` y el `.dmg`:
 
    ```bash
    git tag amecah-v1.5.1-1 && git push origin amecah-v1.5.1-1
