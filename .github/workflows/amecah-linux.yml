@@ -1,0 +1,200 @@
+name: AMECAH Linux build
+
+# Technician client (full flavor) for Linux x86_64, .deb package.
+# Server settings come from the AMECAH_RENDEZVOUS_SERVER and AMECAH_RS_PUB_KEY
+# repository variables. Steps adapted from the x86_64 entry of build-rustdesk-linux
+# in flutter-build.yml (built in an Ubuntu 18.04 container for an old glibc).
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "amecah-v*"
+
+env:
+  RUST_VERSION: "1.75"
+  FLUTTER_VERSION: "3.24.5"
+  VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+  VCPKG_COMMIT_ID: "9e593bb18ea69cc5095e012465dcd675a822ed0d"
+  AMECAH_RENDEZVOUS_SERVER: "${{ vars.AMECAH_RENDEZVOUS_SERVER }}"
+  AMECAH_RS_PUB_KEY: "${{ vars.AMECAH_RS_PUB_KEY }}"
+
+jobs:
+  check-config:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Require the server public key
+        run: |
+          if [ -z "$AMECAH_RS_PUB_KEY" ]; then
+            echo "::error::Set the AMECAH_RS_PUB_KEY repository variable (contents of id_ed25519.pub of the server)"
+            exit 1
+          fi
+
+  generate-bridge:
+    needs: [check-config]
+    uses: ./.github/workflows/bridge.yml
+
+  build-linux:
+    name: Amecah-linux-x86_64
+    needs: [generate-bridge]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - name: Export GitHub Actions cache environment variables
+        uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
+        with:
+          script: |
+            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
+
+      - name: Maximize build space
+        run: |
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /usr/share/dotnet
+          sudo apt-get update -y
+          sudo apt-get install -y nasm qemu-user-static
+
+      - name: Checkout source code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: recursive
+
+      - name: Apply AMECAH branding
+        run: bash amecah/apply-branding.sh
+
+      - name: Set Swap Space
+        uses: pierotofy/set-swap-space@49819abfb41bd9b44fb781159c033dba90353a7c # v1.0
+        with:
+          swap-size-gb: 12
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          targets: x86_64-unknown-linux-gnu
+          components: "rustfmt"
+
+      - name: Save Rust toolchain version
+        run: |
+          echo "RUST_TOOLCHAIN_VERSION=$(cargo --version | awk '{print $2}')" >> $GITHUB_ENV
+
+      - name: Disable rust bridge build
+        run: |
+          sed -i  "s/\[\"cdylib\", \"staticlib\", \"rlib\"\]/\[\"cdylib\"\]/g" Cargo.toml
+
+      - name: Restore bridge files
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bridge-artifact
+          path: ./
+
+      - name: Setup vcpkg with Github Actions binary cache
+        uses: lukka/run-vcpkg@b1a0dd252f06b9e25b3c022a9a03bd7a427fb6a2 # v11
+        with:
+          vcpkgDirectory: /opt/artifacts/vcpkg
+          vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
+          doNotCache: false
+
+      - name: Install vcpkg dependencies
+        shell: bash
+        run: |
+          sudo apt install -y libva-dev
+          $VCPKG_ROOT/vcpkg install --triplet x64-linux --x-install-root="$VCPKG_ROOT/installed"
+
+      - uses: rustdesk-org/run-on-arch-action@d3fcfbb632b84cf7f6bc772bfaaa2c2f4f8789a8 # no release tag; commit 2026-05-26
+        name: Build rustdesk
+        with:
+          arch: x86_64
+          distro: ubuntu18.04
+          githubToken: ${{ github.token }}
+          dockerRunArgs: |
+            --volume "${PWD}:/workspace"
+            --volume "/opt/artifacts:/opt/artifacts"
+            --env AMECAH_RENDEZVOUS_SERVER=${{ vars.AMECAH_RENDEZVOUS_SERVER }}
+            --env AMECAH_RS_PUB_KEY=${{ vars.AMECAH_RS_PUB_KEY }}
+          shell: /bin/bash
+          install: |
+            apt-get update -y
+            apt-get install -y \
+               build-essential \
+               clang \
+               cmake \
+               curl \
+               gcc \
+               git \
+               g++ \
+               libayatana-appindicator3-dev \
+               libasound2-dev \
+               libclang-10-dev \
+               libgstreamer1.0-dev \
+               libgstreamer-plugins-base1.0-dev \
+               libgtk-3-dev \
+               libpulse-dev \
+               libva-dev \
+               libxcb-randr0-dev \
+               libxcb-shape0-dev \
+               libxcb-xfixes0-dev \
+               libxdo-dev \
+               libxfixes-dev \
+               llvm-10-dev \
+               nasm \
+               ninja-build \
+               pkg-config \
+               python3 \
+               unzip \
+               wget \
+               xz-utils \
+               libssl-dev
+            # we have libopus compiled by us.
+            apt-get remove -y libopus-dev || true
+          run: |
+            git config --global --add safe.directory "*"
+            pushd /opt
+            # do not use rustup, because memory overflow in qemu
+            wget -O rust.tar.gz https://static.rust-lang.org/dist/rust-${{ env.RUST_TOOLCHAIN_VERSION }}-x86_64-unknown-linux-gnu.tar.gz
+            tar -zxvf rust.tar.gz > /dev/null && rm rust.tar.gz
+            cd rust-${{ env.RUST_TOOLCHAIN_VERSION }}-x86_64-unknown-linux-gnu && ./install.sh
+            popd
+
+            pushd /workspace
+            export VCPKG_ROOT=/opt/artifacts/vcpkg
+            cargo build --locked --lib --features hwcodec,flutter,unix-file-copy-paste --release
+            # The server key must be compiled in, or the client cannot authenticate the server.
+            if [ -z "$AMECAH_RS_PUB_KEY" ] || ! grep -q "$AMECAH_RS_PUB_KEY" target/release/librustdesk.so; then
+              echo "AMECAH_RS_PUB_KEY is not compiled into librustdesk.so"
+              exit 1
+            fi
+            rm -rf target/release/deps target/release/build
+            rm -rf ~/.cargo
+            popd
+
+            pushd /opt
+            wget https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_${{ env.FLUTTER_VERSION }}-stable.tar.xz
+            tar xf flutter_linux_${{ env.FLUTTER_VERSION }}-stable.tar.xz
+            export PATH=/opt/flutter/bin:$PATH
+            pushd /opt/flutter
+            git apply /workspace/.github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff
+            popd
+            popd
+
+            pushd /workspace
+            export CARGO_INCREMENTAL=0
+            export DEB_ARCH=amd64
+            python3 ./build.py --flutter --skip-cargo
+            version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+            mkdir -p output
+            mv rustdesk-${version}.deb "output/Amecah-${version}-linux-x86_64.deb"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: Amecah-linux-x86_64
+          path: ./output
+
+      - name: Publish Release
+        if: startsWith(github.ref, 'refs/tags/amecah-v')
+        uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
+        with:
+          files: ./output/*.deb
